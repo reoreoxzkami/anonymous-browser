@@ -1,55 +1,71 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
+  <meta charset="UTF-8" />
   <title>匿名ブラウザ</title>
   <style>
-    body { font-family: Arial; text-align: center; }
-    input { width: 60%; padding: 10px; }
-    button { padding: 10px 20px; }
-    iframe { width: 100%; height: 600px; margin-top: 20px; }
-    .ad { margin: 20px; padding: 20px; border: 1px dashed #ccc; }
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      margin: 0;
+      background: #f5f5f5;
+    }
+
+    h1 {
+      margin-top: 20px;
+    }
+
+    .box {
+      margin: 20px;
+    }
+
+    input {
+      width: 60%;
+      padding: 10px;
+    }
+
+    button {
+      padding: 10px 20px;
+      margin-left: 5px;
+      cursor: pointer;
+    }
+
+    iframe {
+      width: 100%;
+      height: 80vh;
+      border: none;
+      margin-top: 10px;
+    }
   </style>
 </head>
 <body>
 
   <h1>匿名ブラウザ</h1>
 
-  <!-- 🔥 広告（上） -->
-  <div class="ad">
-    AdSense（ここに広告コード）
-  </div>
-
   <!-- URLアクセス -->
-  <div>
-    <input type="text" id="url" placeholder="https://example.com">
+  <div class="box">
+    <input id="url" placeholder="https://example.com" />
     <button onclick="go()">アクセス</button>
   </div>
 
-  <br>
-
   <!-- 検索 -->
-  <div>
-    <input type="text" id="search" placeholder="検索ワード">
+  <div class="box">
+    <input id="search" placeholder="検索ワード" />
     <button onclick="search()">検索</button>
   </div>
 
-  <!-- 🔥 広告（下） -->
-  <div class="ad">
-    AdSense（ここに広告コード）
-  </div>
-
-  <iframe id="viewer"></iframe>
+  <iframe id="frame"></iframe>
 
   <script>
     function go() {
       const url = document.getElementById("url").value;
-      document.getElementById("viewer").src =
+      document.getElementById("frame").src =
         "/proxy?url=" + encodeURIComponent(url);
     }
 
     function search() {
       const q = document.getElementById("search").value;
-      document.getElementById("viewer").src =
+      document.getElementById("frame").src =
         "/search?q=" + encodeURIComponent(q);
     }
   </script>
