@@ -9,53 +9,53 @@ import { createClient } from "@supabase/supabase-js";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-/* =========================
-   🔒 セキュリティ
-========================= */
+/* =============================
+   セキュリティ
+============================= */
 app.use(
   helmet({
-    contentSecurityPolicy: false, // ← これ重要（フロント動かすため）
+    contentSecurityPolicy: false,
   })
 );
 
-/* =========================
-   📦 基本
-========================= */
-app.use(express.json());
-app.use(express.static("public"));
-
-/* =========================
-   🧠 Supabase
-========================= */
+/* =============================
+   Supabase
+============================= */
 const supabase = createClient(
-  process.env.SUPABASE_URL || "https://YOUR.supabase.co",
-  process.env.SUPABASE_KEY || "YOUR_KEY"
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_KEY
 );
 
-/* =========================
-   ⚡ Redis
-========================= */
-const redis = new Redis(process.env.REDIS_URL || "redis://127.0.0.1:6379");
+/* =============================
+   Redis
+============================= */
+let redis;
+if (process.env.REDIS_URL) {
+  redis = new Redis(process.env.REDIS_URL);
+}
 
-/* =========================
-   🔒 セッション
-========================= */
+/* =============================
+   セッション
+============================= */
+app.set("trust proxy", 1);
+
 app.use(
   session({
-    secret: "super-secret-key",
+    secret: process.env.SESSION_SECRET || "super-secret-key",
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: false,
+      secure: true,
+      sameSite: "lax",
       maxAge: 1000 * 60 * 60,
     },
   })
 );
 
-/* =========================
-   🛡 URLチェック
-========================= */
+/* =============================
+   ユーティリティ
+============================= */
 function isValidUrl(url) {
   try {
     new URL(url);
@@ -65,11 +65,12 @@ function isValidUrl(url) {
   }
 }
 
-/* =========================
-   🔐 REGISTER
-========================= */
+/* =============================
+   登録
+============================= */
 app.get("/register", async (req, res) => {
   const { email, pass } = req.query;
+
   if (!email || !pass) return res.send("入力エラー");
 
   const hash = await bcrypt.hash(pass, 10);
@@ -82,24 +83,29 @@ app.get("/register", async (req, res) => {
     },
   ]);
 
-  if (error) return res.send("登録失敗");
+  if (error) {
+    console.log(error);
+    return res.send("登録失敗: " + error.message);
+  }
+
   res.send("登録成功");
 });
 
-/* =========================
-   🔐 LOGIN
-========================= */
+/* =============================
+   ログイン
+============================= */
 app.get("/login", async (req, res) => {
   const { email, pass } = req.query;
+
   if (!email || !pass) return res.send("入力エラー");
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("users")
     .select("*")
     .eq("email", email)
     .single();
 
-  if (!data) return res.send("ユーザーなし");
+  if (error || !data) return res.send("ユーザーなし");
 
   const match = await bcrypt.compare(pass, data.password);
   if (!match) return res.send("パスワード違う");
@@ -113,116 +119,200 @@ app.get("/login", async (req, res) => {
   res.send("ログイン成功");
 });
 
-/* =========================
-   🚪 LOGOUT
-========================= */
+/* =============================
+   ログアウト
+============================= */
 app.get("/logout", (req, res) => {
   req.session.destroy();
   res.send("ログアウト");
 });
 
-/* =========================
-   🚫 制限
-========================= */
+/* =============================
+   使用制限（無料ユーザー）
+============================= */
 const usage = {};
 
 app.use((req, res, next) => {
-  if (req.path === "/proxy") {
-    const ip =
-      req.headers["x-forwarded-for"]?.split(",")[0] ||
-      req.socket.remoteAddress;
+  const ip =
+    req.headers["x-forwarded-for"]?.split(",")[0] ||
+    req.socket.remoteAddress;
 
-    const isPremium = req.session.user?.premium;
-
-    if (!usage[ip]) {
-      usage[ip] = { count: 0, lastReset: Date.now() };
-    }
-
-    if (Date.now() - usage[ip].lastReset > 60 * 60 * 1000) {
-      usage[ip] = { count: 0, lastReset: Date.now() };
-    }
-
-    usage[ip].count++;
-
-    if (!isPremium && usage[ip].count > 20) {
-      return res.send("無料制限です。有料へ");
-    }
+  if (!usage[ip]) {
+    usage[ip] = { count: 0, lastReset: Date.now() };
   }
 
+  if (Date.now() - usage[ip].lastReset > 60 * 60 * 1000) {
+    usage[ip] = { count: 0, lastReset: Date.now() };
+  }
+
+  usage[ip].count++;
+
+  req.usage = usage[ip];
   next();
 });
 
-/* =========================
-   🌐 PROXY（改善版）
-========================= */
+/* =============================
+   プロキシ（メイン機能）
+============================= */
 app.get("/proxy", async (req, res) => {
-  let url = req.query.url;
-
-  if (!url) return res.send("URLなし");
-
-  if (!url.startsWith("http")) {
-    url = "https://" + url;
+  if (!req.session.user) {
+    return res.send("無料制限です。有料へ");
   }
 
-  if (!isValidUrl(url)) {
-    return res.send("URL不正");
-  }
+  const url = req.query.url;
 
-  try {
-    // 🔥 キャッシュ
-    const cached = await redis.get(url);
-    if (cached) {
-      console.log("CACHE HIT");
-      return res.send(cached);
+  if (!isValidUrl(url)) return res.send("URL不正");
+
+  res.send(`
+    <iframe src="${url}" 
+    style="width:100%; height:100vh; border:none;">
+    </iframe>
+  `);
+});
+
+/* =============================
+   検索
+============================= */
+app.get("/search", async (req, res) => {
+  const q = req.query.q || "";
+
+  const API_KEY = process.env.SERP_API_KEY;
+
+  let results = [];
+
+  if (q) {
+    try {
+      const response = await fetch(
+        `https://serpapi.com/search.json?q=${encodeURIComponent(q)}&hl=ja&gl=jp&api_key=${API_KEY}`
+      );
+
+      const data = await response.json();
+      results = data.organic_results || [];
+    } catch (e) {
+      console.log(e);
     }
-
-    console.log("FETCH:", url);
-
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-        "Accept":
-          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-      redirect: "follow",
-    });
-
-    let html = await response.text();
-
-    // 🔥 script無効化（CSP回避）
-    html = html.replace(/<script/gi, "&lt;script");
-
-    // 🔥 相対パス修正
-    const base = new URL(url).origin;
-    html = html.replace(/href="\//g, `href="${base}/`);
-    html = html.replace(/src="\//g, `src="${base}/`);
-
-    // 🔥 キャッシュ保存
-    await redis.set(url, html, "EX", 60);
-
-    res.send(html);
-  } catch (err) {
-    console.error(err);
-    res.send("取得エラー");
   }
+
+  let html = `
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>${q ? q + " - 検索" : "検索"}</title>
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  background: #fff;
+  color: #202124;
+}
+
+.header {
+  padding: 20px;
+  border-bottom: 1px solid #eee;
+}
+
+.logo {
+  font-size: 22px;
+  font-weight: bold;
+  color: #4285f4;
+}
+
+.search-box {
+  margin-top: 10px;
+}
+
+input {
+  width: 60%;
+  padding: 10px 15px;
+  border-radius: 24px;
+  border: 1px solid #ddd;
+  font-size: 16px;
+}
+
+button {
+  margin-left: 10px;
+  padding: 10px 20px;
+  border-radius: 24px;
+  border: none;
+  background: #4285f4;
+  color: white;
+  cursor: pointer;
+}
+
+.container {
+  width: 800px;
+  margin: 20px auto;
+}
+
+.result {
+  margin-bottom: 25px;
+}
+
+.result a {
+  font-size: 18px;
+  color: #1a0dab;
+  text-decoration: none;
+}
+
+.result a:hover {
+  text-decoration: underline;
+}
+
+.url {
+  font-size: 14px;
+  color: #006621;
+}
+
+.snippet {
+  font-size: 14px;
+  color: #545454;
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">Anonymous Search</div>
+
+  <form class="search-box" action="/search">
+    <input name="q" value="${q}" placeholder="検索ワード">
+    <button>検索</button>
+  </form>
+</div>
+
+<div class="container">
+`;
+
+  results.forEach((r, i) => {
+    html += `
+      <div class="result">
+        <div class="url">${r.displayed_link || ""}</div>
+        <a href="/proxy?url=${encodeURIComponent(r.link)}">
+          ${r.title}
+        </a>
+        <div class="snippet">${r.snippet || ""}</div>
+      </div>
+    `;
+  });
+
+  html += `
+</div>
+</body>
+</html>
+`;
+
+  res.send(html);
 });
+/* =============================
+   静的ファイル
+============================= */
+app.use(express.static("public"));
 
-/* =========================
-   🔍 SEARCH（修正済）
-========================= */
-app.get("/search", (req, res) => {
-  const q = req.query.q;
-
-  const url = "https://duckduckgo.com/?q=" + encodeURIComponent(q);
-
-  res.redirect("/proxy?url=" + encodeURIComponent(url));
-});
-
-/* =========================
-   🚀 起動
-========================= */
+/* =============================
+   起動
+============================= */
 app.listen(PORT, () => {
-  console.log("🚀 Ultimate Server Running on", PORT);
+  console.log("🚀 Server Running on http://localhost:" + PORT);
 });

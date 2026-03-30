@@ -1,22 +1,58 @@
-async function go() {
-  const url = document.getElementById("url").value;
+const loginTab = document.getElementById("loginTab");
+const registerTab = document.getElementById("registerTab");
+const loginForm = document.getElementById("loginForm");
+const registerForm = document.getElementById("registerForm");
 
-  const proxyUrl = "/proxy?url=" + encodeURIComponent(url);
+loginTab.addEventListener("click", () => {
+  loginTab.classList.add("active");
+  registerTab.classList.remove("active");
+  loginForm.classList.remove("hidden");
+  registerForm.classList.add("hidden");
+});
 
-  document.getElementById("frame").src = proxyUrl;
-}
+registerTab.addEventListener("click", () => {
+  registerTab.classList.add("active");
+  loginTab.classList.remove("active");
+  registerForm.classList.remove("hidden");
+  loginForm.classList.add("hidden");
+});
 
-function search() {
-  const q = document.getElementById("search").value;
+document.getElementById("loginBtn").addEventListener("click", async () => {
+  const email = document.getElementById("loginEmail").value;
+  const pass = document.getElementById("loginPass").value;
 
-  const url = "https://duckduckgo.com/?q=" + encodeURIComponent(q);
+  const res = await fetch(`/login?email=${email}&pass=${pass}`);
+  const text = await res.text();
 
-  document.getElementById("frame").src =
-    "/proxy?url=" + encodeURIComponent(url);
-}
+  alert(text);
 
-// 仮ログイン（後でSupabaseに置き換え）
-function login() {
-  const email = document.getElementById("email").value;
-  alert("Logged in as: " + email);
-}
+  if (text.includes("成功")) {
+    document.getElementById("auth").style.display = "none";
+    document.getElementById("app").style.display = "block";
+  }
+});
+
+document.getElementById("registerBtn").addEventListener("click", async () => {
+  const email = document.getElementById("regEmail").value;
+  const pass = document.getElementById("regPass").value;
+
+  const res = await fetch(`/register?email=${email}&pass=${pass}`);
+  const text = await res.text();
+
+  alert(text);
+});
+
+document.getElementById("searchBtn").addEventListener("click", () => {
+  const q = document.getElementById("searchBox").value;
+  window.location = `/search?q=${encodeURIComponent(q)}`;
+});
+
+document.getElementById("openBtn").addEventListener("click", () => {
+  const url = document.getElementById("urlBox").value;
+  window.location = `/proxy?url=${encodeURIComponent(url)}`;
+});
+
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+  await fetch("/logout");
+  location.reload();
+});

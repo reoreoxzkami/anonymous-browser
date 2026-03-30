@@ -1,27 +1,12 @@
 {
   "name": "anonymous-browser",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/reoreoxzkami/anonymous-browser.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "bugs": {
-    "url": "https://github.com/reoreoxzkami/anonymous-browser/issues"
-  },
-  "homepage": "https://github.com/reoreoxzkami/anonymous-browser#readme",
+  "type": "module",
+  "main": "server.js",
   "dependencies": {
-    "@supabase/supabase-js": "^2.100.1",
-    "bcrypt": "^6.0.0",
-    "express": "^5.2.1",
+    "@supabase/supabase-js": "^2.0.0",
+    "bcrypt": "^5.1.0",
+    "express": "^4.18.2",
     "express-session": "^1.19.0",
     "helmet": "^8.1.0",
     "ioredis": "^5.10.1",
