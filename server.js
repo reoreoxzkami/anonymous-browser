@@ -21,10 +21,12 @@ app.use(
 /* =============================
    Supabase
 ============================= */
+/*
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_KEY
 );
+*/
 /* =============================
    Redis
 ============================= */
@@ -39,7 +41,7 @@ app.set("trust proxy", 1); // ←これ重要（Render用）
 
 app.use(
   session({
-    secret: process.env.SESSION_SECRET,
+    secret: "my-secret-key", 
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -63,6 +65,7 @@ function isValidUrl(url) {
 /* =============================
    登録
 ============================= */
+/*
 app.get("/register", async (req, res) => {
   const { email, pass } = req.query;
 
@@ -85,10 +88,11 @@ app.get("/register", async (req, res) => {
 
   res.send("登録成功");
 });
-
+*/
 /* =============================
    ログイン
 ============================= */
+/*
 app.get("/login", async (req, res) => {
   const { email, pass } = req.query;
 
@@ -113,6 +117,7 @@ app.get("/login", async (req, res) => {
 
   res.send("ログイン成功");
 });
+*/
 
 /* =============================
    ログアウト
@@ -165,26 +170,35 @@ app.get("/proxy", async (req, res) => {
   `);
 });
 
-/* =============================
-   検索
-============================= */
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0"
+      }
+    });
+
+    const html = await response.text();
+
+    res.send(html);
+  } catch (e) {
+    res.send("このサイトは匿名表示できません");
+  }
+});
+
 /* =============================
    検索 (エンドポイント: /api/search)
 ============================= */
-const searchCount = {};
-const page = parseInt(req.query.page || "1");
-const perPage = 5;
-const paginated = results.slice((page - 1) * perPage, page * perPage);
-
 app.get('/api/search', async (req, res) => {
   const q = req.query.q || "";
   const lang = req.query.lang || "ja";
+  const page = Number(req.query.page || 1);
+  const perPage = 5;
 
   if (!global.cache) global.cache = {};
   if (!global.searchCount) global.searchCount = {};
 
-  if (global.cache[q]) {
-    return res.send(global.cache[q]);
+  if (global.cache[q + page]) {
+    return res.send(global.cache[q + page]);
   }
 
   if (q) {
@@ -213,9 +227,14 @@ app.get('/api/search', async (req, res) => {
           content: item.Text
         }));
     }
-  } catch {}
+  } catch (e) {
+    console.error(e);
+  }
 
-  // 🌍 多言語
+  // ページネーション
+  const paginated = results.slice((page - 1) * perPage, page * perPage);
+
+  // 多言語
   const t = {
     ja: { placeholder: "検索...", no: "結果が見つかりません", rank: "人気検索" },
     en: { placeholder: "Search...", no: "No results", rank: "Trending" }
@@ -239,9 +258,9 @@ input { flex:1; padding:10px; border-radius:20px; }
 .result { margin-bottom:20px; }
 
 .rank { position:fixed; right:20px; top:100px; width:200px; }
-
 .rank div { cursor:pointer; padding:5px; }
 
+.url { font-size:12px; color:gray; }
 </style>
 </head>
 
@@ -249,39 +268,47 @@ input { flex:1; padding:10px; border-radius:20px; }
 
 <div class="header">
   <div onclick="location.href='/'" style="cursor:pointer;">🔍</div>
+
   <form action="/api/search">
     <input name="q" value="${q}" placeholder="${t.placeholder}">
     <input type="hidden" name="lang" value="${lang}">
   </form>
 
-  <!-- 言語切替 -->
   <select onchange="changeLang(this.value)">
     <option value="ja" ${lang==="ja"?"selected":""}>JP</option>
     <option value="en" ${lang==="en"?"selected":""}>EN</option>
   </select>
-
 </div>
 
 <div class="container">
 `;
 
-  if (results.length > 0) {
+  if (paginated.length > 0) {
     paginated.forEach(r => {
-  const domain = new URL(r.url).hostname;
+      const domain = new URL(r.url).hostname;
 
-  html += `
-    <div class="result">
-      <img src="https://www.google.com/s2/favicons?domain=${domain}" width="16">
-      <a href="/proxy?url=${encodeURIComponent(r.url)}">${r.title}</a>
-      <div class="snippet">${r.content}</div>
-    </div>
-  `;
-});
+      html += `
+        <div class="result">
+          <img src="https://www.google.com/s2/favicons?domain=${domain}" width="16">
+          
+          <!-- プロキシ経由 -->
+          <a href="/proxy?url=${encodeURIComponent(r.url)}" target="_blank">
+            ${r.title}
+          </a>
+
+          <!-- 元URL表示 -->
+          <div class="url">${r.url}</div>
+
+          <div class="snippet">${r.content}</div>
+        </div>
+      `;
+    });
   } else if (q) {
     html += `<p>${t.no}</p>`;
   }
 
-  html += `</div>
+  html += `
+</div>
 
 <div class="rank">
   <h4>${t.rank}</h4>
@@ -292,15 +319,11 @@ input { flex:1; padding:10px; border-radius:20px; }
   `).join("")}
 </div>
 
-html += `
 <div style="margin:40px 0; text-align:center;">
-  ${page > 1 ? `<a href="/api/search?q=${q}&page=${page-1}">← 前へ</a>` : ""}
-  
+  ${page > 1 ? `<a href="/api/search?q=${q}&page=${page-1}">←</a>` : ""}
   <span style="margin:0 20px;">${page}</span>
-  
-  ${results.length > page * perPage ? `<a href="/api/search?q=${q}&page=${page+1}">次へ →</a>` : ""}
+  ${results.length > page * perPage ? `<a href="/api/search?q=${q}&page=${page+1}">→</a>` : ""}
 </div>
-`;
 
 <script>
 function changeLang(l) {
@@ -314,8 +337,7 @@ function changeLang(l) {
 </html>
 `;
 
-  global.cache[q] = html;
-
+  global.cache[q + page] = html;
   res.send(html);
 });
 /* =============================
