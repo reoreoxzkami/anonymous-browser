@@ -55,8 +55,10 @@ a {
   <div class="logo">Anonymous Search</div>
 
   <form class="search-box" action="/search">
-    <input name="q" placeholder="検索ワード">
-    <button>検索</button>
+    <input id="searchInput" type="text" placeholder="検索ワードを入力">
+<button onclick="search()">検索</button>
+
+<div id="results"></div>
   </form>
 </div>
 
@@ -89,5 +91,40 @@ a {
   <a href="/legal/contact.html">お問い合わせ</a>
 </div>
 
+    <script>
+async function search() {
+  const query = document.getElementById("searchInput").value;
+
+  if (!query) return;
+
+  try {
+    const res = await fetch("/search?q=" + encodeURIComponent(query));
+    const data = await res.json();
+
+    const resultsDiv = document.getElementById("results");
+    resultsDiv.innerHTML = "";
+
+    if (!data.results || data.results.length === 0) {
+      resultsDiv.innerHTML = "<p>結果が見つかりませんでした</p>";
+      return;
+    }
+
+    data.results.forEach(item => {
+      const div = document.createElement("div");
+      div.innerHTML = `
+        <h3><a href="${item.url}" target="_blank">${item.title}</a></h3>
+        <p>${item.content}</p>
+        <hr>
+      `;
+      resultsDiv.appendChild(div);
+    });
+
+  } catch (err) {
+    console.error(err);
+    alert("検索エラーが発生しました");
+  }
+}
+</script>
+    
 </body>
 </html>

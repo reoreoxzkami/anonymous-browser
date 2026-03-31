@@ -174,17 +174,17 @@ app.get("/search", async (req, res) => {
 
   if (q) {
     try {
-      const response = await fetch("https://api.tavily.com/search", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          api_key: process.env.TAVILY_API_KEY,
-          query: q,
-          search_depth: "basic",
-        }),
-      });
+const response = await fetch("https://api.tavily.com/search", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${process.env.TAVILY_API_KEY}`
+  },
+  body: JSON.stringify({
+    query: req.query.q,
+    search_depth: "basic"
+  })
+});
 
       const data = await response.json();
 
