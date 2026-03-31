@@ -2,75 +2,140 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>Anonymous Search - 安全な検索</title>
+<title>Anonymous Search</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <style>
-body {
-  font-family: Arial;
-  margin: 0;
-  background: #fff;
-  color: #202124;
+:root {
+  --bg: #ffffff;
+  --text: #000000;
+  --box: #f5f5f5;
 }
+
+.dark {
+  --bg: #0f172a;
+  --text: #ffffff;
+  --box: #1e293b;
+}
+
+body {
+  font-family: Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  margin: 0;
+  transition: 0.3s;
+}
+
+/* ヘッダー */
 .header {
   text-align: center;
-  padding: 40px 20px;
+  margin-top: 100px;
+  position: relative;
 }
+
 .logo {
-  font-size: 32px;
-  font-weight: bold;
+  font-size: 40px;
   color: #4285f4;
+  font-weight: bold;
 }
-.search-box input {
-  width: 60%;
-  padding: 12px;
+
+/* ダークモードボタン */
+.toggle {
+  position: absolute;
+  right: 20px;
+  top: 20px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+/* 検索 */
+.search-box {
+  margin-top: 20px;
+}
+
+input {
+  width: 500px;
+  max-width: 80%;
+  padding: 14px;
   border-radius: 24px;
-  border: 1px solid #ddd;
+  border: 1px solid #ccc;
+  background: var(--box);
+  color: var(--text);
 }
-.search-box button {
-  padding: 12px 20px;
+
+button {
+  margin-top: 15px;
+  padding: 10px 24px;
   border-radius: 24px;
   border: none;
   background: #4285f4;
   color: white;
+  cursor: pointer;
 }
+
+/* 履歴 */
+#history {
+  margin-top: 15px;
+}
+
+.history-item {
+  cursor: pointer;
+  padding: 5px;
+  font-size: 14px;
+}
+
+.history-item:hover {
+  background: var(--box);
+}
+
+/* セクション */
 .section {
-  max-width: 800px;
-  margin: 40px auto;
+  width: 700px;
+  max-width: 90%;
+  margin: 60px auto;
 }
-a {
-  color: #1a0dab;
-  text-decoration: none;
+
+.section h2 {
+  border-bottom: 2px solid #ccc;
 }
+
+/* フッター */
 .footer {
   text-align: center;
-  padding: 20px;
-  border-top: 1px solid #eee;
-  font-size: 14px;
+  padding: 30px;
+  border-top: 1px solid #ccc;
+}
+
+.footer a {
+  margin: 0 10px;
+  color: var(--text);
+  text-decoration: none;
 }
 </style>
 </head>
+
 <body>
 
 <div class="header">
   <div class="logo">Anonymous Search</div>
 
- <form action="/api/search" method="GET">
-    <input id="searchInput" type="text" placeholder="検索ワードを入力">
-<button onclick="search()">検索</button>
+  <div class="toggle" onclick="toggleDark()">
+    🌙 ダークモード
+  </div>
 
-<div id="results"></div>
+  <form class="search-box" action="/api/search" method="GET" onsubmit="saveSearch(this.q.value)">
+    <input name="q" placeholder="検索ワード" autocomplete="off">
+    <br>
+    <button type="submit">検索</button>
   </form>
+
+  <div id="history"></div>
 </div>
 
 <div class="section">
   <h2>このサイトについて</h2>
-  <p>
-  Anonymous Searchは、安全でプライバシーに配慮した検索を提供するサービスです。
-  個人情報の追跡を最小限に抑え、安心してインターネットを利用できます。
-  </p>
-    <p>
-このサイトでは匿名検索やプライバシー保護についての情報も発信しています。
-</p>
+  <p>Anonymous Searchは安全で匿名性を重視した検索サービスです。</p>
+  <p>ログイン不要でシンプルに使えます。</p>
 </div>
 
 <div class="section">
@@ -79,41 +144,52 @@ a {
     <li><a href="/articles/privacy.html">プライバシーの守り方</a></li>
     <li><a href="/articles/security.html">安全なネットの使い方</a></li>
     <li><a href="/articles/anonymous.html">匿名ブラウザとは</a></li>
-    <li><a href="/articles/danger.html">危険サイトの見分け方</a></li>
-    <li><a href="/articles/search-safe.html">安全な検索方法</a></li>
   </ul>
 </div>
 
 <div class="footer">
-  <a href="/legal/about.html">運営者情報</a> |
-  <a href="/legal/privacy-policy.html">プライバシーポリシー</a> |
-  <a href="/legal/terms.html">利用規約</a> |
+  <a href="/legal/about.html">運営者情報</a>
+  <a href="/legal/privacy-policy.html">プライバシーポリシー</a>
+  <a href="/legal/terms.html">利用規約</a>
   <a href="/legal/contact.html">お問い合わせ</a>
 </div>
 
 <script>
-async function search() {
-  const query = document.getElementById('searchBox').value;
-
-  const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-  const data = await res.json();
-
-  const resultsDiv = document.getElementById('results');
-  resultsDiv.innerHTML = '';
-
-  data.results.forEach(r => {
-    const a = document.createElement('a');
-    a.href = r.url;
-    a.textContent = r.text;
-    a.target = "_blank";
-
-    const div = document.createElement('div');
-    div.appendChild(a);
-
-    resultsDiv.appendChild(div);
-  });
+// ダークモード
+function toggleDark() {
+  document.body.classList.toggle("dark");
+  localStorage.setItem("dark", document.body.classList.contains("dark"));
 }
+
+// 初期状態
+if (localStorage.getItem("dark") === "true") {
+  document.body.classList.add("dark");
+}
+
+// 履歴
+function saveSearch(q) {
+  if (!q) return;
+  let history = JSON.parse(localStorage.getItem("history") || "[]");
+
+  history.unshift(q);
+  history = [...new Set(history)].slice(0, 10);
+
+  localStorage.setItem("history", JSON.stringify(history));
+}
+
+function showHistory() {
+  const history = JSON.parse(localStorage.getItem("history") || "[]");
+  const box = document.getElementById("history");
+
+  box.innerHTML = history.map(q => `
+    <div class="history-item" onclick="location.href='/api/search?q=${encodeURIComponent(q)}'">
+      🔍 ${q}
+    </div>
+  `).join("");
+}
+
+showHistory();
 </script>
-    
+
 </body>
 </html>

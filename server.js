@@ -7,6 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const cache = {};
 
 /* =============================
    セキュリティ
@@ -149,10 +150,10 @@ app.use((req, res, next) => {
    プロキシ（メイン機能）
 ============================= */
 app.get("/proxy", async (req, res) => {
-  if (!req.session.user) {
-    return res.send("無料制限です。有料へ");
-  }
-
+  if (req.usage.count > 100) {
+  return res.send("使いすぎです（1時間後にリセット）");
+}
+    
   const url = req.query.url;
 
   if (!isValidUrl(url)) return res.send("URL不正");
@@ -172,13 +173,18 @@ app.get("/proxy", async (req, res) => {
 ============================= */
 app.get('/api/search', async (req, res) => {
   const q = req.query.q || ""; // クエリがない場合は空文字
-
+    
+if (cache[q]) {
+    console.log("キャッシュ使用:", q);
+    return res.send(cache[q]);
+  }
+    
   let results = [];
   try {
     if (q) {
       // DuckDuckGo APIからデータを取得
       const response = await fetch(
-  `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json`
+  `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&kl=jp-jp`
 );
       const data = await response.json();
 
@@ -250,7 +256,9 @@ app.get('/api/search', async (req, res) => {
   }
 
   html += `</div></body></html>`;
-  
+    
+  cache[q] = html;
+    
   res.send(html);
 }); // ここで正しく閉じられました
 
