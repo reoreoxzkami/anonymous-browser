@@ -91,38 +91,27 @@ a {
   <a href="/legal/contact.html">お問い合わせ</a>
 </div>
 
-    <script>
+<script>
 async function search() {
-  const query = document.getElementById("searchInput").value;
+  const query = document.getElementById('searchBox').value;
 
-  if (!query) return;
+  const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+  const data = await res.json();
 
-  try {
-    const res = await fetch("/search?q=" + encodeURIComponent(query));
-    const data = await res.json();
+  const resultsDiv = document.getElementById('results');
+  resultsDiv.innerHTML = '';
 
-    const resultsDiv = document.getElementById("results");
-    resultsDiv.innerHTML = "";
+  data.results.forEach(r => {
+    const a = document.createElement('a');
+    a.href = r.url;
+    a.textContent = r.text;
+    a.target = "_blank";
 
-    if (!data.results || data.results.length === 0) {
-      resultsDiv.innerHTML = "<p>結果が見つかりませんでした</p>";
-      return;
-    }
+    const div = document.createElement('div');
+    div.appendChild(a);
 
-    data.results.forEach(item => {
-      const div = document.createElement("div");
-      div.innerHTML = `
-        <h3><a href="${item.url}" target="_blank">${item.title}</a></h3>
-        <p>${item.content}</p>
-        <hr>
-      `;
-      resultsDiv.appendChild(div);
-    });
-
-  } catch (err) {
-    console.error(err);
-    alert("検索エラーが発生しました");
-  }
+    resultsDiv.appendChild(div);
+  });
 }
 </script>
     

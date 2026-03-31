@@ -167,33 +167,27 @@ app.get("/proxy", async (req, res) => {
 /* =============================
    検索
 ============================= */
-app.get("/search", async (req, res) => {
-  const q = req.query.q || "";
+app.get('/api/search', async (req, res) => {
+  const q = req.query.q;
 
-  let results = [];
-
-  if (q) {
-    try {
-const response = await fetch("https://api.tavily.com/search", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${process.env.TAVILY_API_KEY}`
-  },
-  body: JSON.stringify({
-    query: req.query.q,
-    search_depth: "basic"
-  })
-});
-
-      const data = await response.json();
-
-      // 👇 ここ重要
-      results = data.results || [];
-    } catch (e) {
-      console.log(e);
-    }
+  if (!q) {
+    return res.json({ results: [] });
   }
+
+  try {
+    const response = await fetch(`https://api.duckduckgo.com/?q=${q}&format=json`);
+    const data = await response.json();
+
+    const results = data.RelatedTopics.map(item => ({
+      text: item.Text,
+      url: item.FirstURL
+    }));
+
+    res.json({ results });
+  } catch (e) {
+    res.status(500).json({ error: '検索エラー' });
+  }
+});
 
   let html = `
 <!DOCTYPE html>
