@@ -3,7 +3,6 @@ import fetch from "node-fetch";
 import session from "express-session";
 import bcrypt from "bcrypt";
 import helmet from "helmet";
-import Redis from "ioredis";
 import { createClient } from "@supabase/supabase-js";
 
 const app = express();
@@ -185,12 +184,12 @@ app.get("/search", async (req, res) => {
           api_key: process.env.TAVILY_API_KEY,
           query: q,
           search_depth: "basic",
-          include_answer: false,
-          include_images: false,
         }),
       });
 
       const data = await response.json();
+
+      // 👇 ここ重要
       results = data.results || [];
     } catch (e) {
       console.log(e);
@@ -274,24 +273,19 @@ button {
 <div class="container">
 `;
 
-  results.forEach((r, i) => {
+results.forEach((r) => {
     html += `
       <div class="result">
-        <div class="url">${r.url || ""}</div>
+        <div class="url">${r.url}</div>
         <a href="/proxy?url=${encodeURIComponent(r.url)}">
           ${r.title}
         </a>
-        <div class="snippet">${r.content || ""}</div>
+        <div class="snippet">${r.content}</div>
       </div>
     `;
   });
 
-  html += `
-</div>
-</body>
-</html>
-`;
-
+  html += `</div></body></html>`;
   res.send(html);
 });
 /* =============================
