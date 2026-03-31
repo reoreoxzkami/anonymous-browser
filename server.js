@@ -171,25 +171,41 @@ app.get("/proxy", async (req, res) => {
 /* =============================
    検索 (エンドポイント: /api/search)
 ============================= */
+const searchCount = {};
+const page = parseInt(req.query.page || "1");
+const perPage = 5;
+const paginated = results.slice((page - 1) * perPage, page * perPage);
+
 app.get('/api/search', async (req, res) => {
-  const q = req.query.q || ""; // クエリがない場合は空文字
-    
-if (cache[q]) {
-    console.log("キャッシュ使用:", q);
-    return res.send(cache[q]);
+  const q = req.query.q || "";
+  const lang = req.query.lang || "ja";
+
+  if (!global.cache) global.cache = {};
+  if (!global.searchCount) global.searchCount = {};
+
+  if (global.cache[q]) {
+    return res.send(global.cache[q]);
   }
-    
+
+  if (q) {
+    global.searchCount[q] = (global.searchCount[q] || 0) + 1;
+  }
+
+  const ranking = Object.entries(global.searchCount)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+
   let results = [];
+
   try {
     if (q) {
-      // DuckDuckGo APIからデータを取得
       const response = await fetch(
-  `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&kl=jp-jp`
-);
+        `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json`
+      );
       const data = await response.json();
 
-      // RelatedTopicsから必要な情報を抽出（TextとFirstURLがあるものに限定）
       results = (data.RelatedTopics || [])
+        .flatMap(item => item.Topics || [item])
         .filter(item => item.FirstURL && item.Text)
         .map(item => ({
           title: item.Text,
@@ -197,71 +213,111 @@ if (cache[q]) {
           content: item.Text
         }));
     }
-  } catch (e) {
-    console.error('検索エラー:', e);
-    // エラー時は空の結果で続行
-  }
+  } catch {}
 
-  // HTMLの組み立て
+  // 🌍 多言語
+  const t = {
+    ja: { placeholder: "検索...", no: "結果が見つかりません", rank: "人気検索" },
+    en: { placeholder: "Search...", no: "No results", rank: "Trending" }
+  }[lang];
+
   let html = `
 <!DOCTYPE html>
-<html lang="ja">
+<html>
 <head>
 <meta charset="UTF-8">
-<title>${q ? q + " - 検索" : "検索"}</title>
+<title>${q}</title>
+
 <style>
-  body { font-family: Arial; margin: 0; background: #fff; }
-  .header { padding: 20px; border-bottom: 1px solid #eee; }
-  .logo { font-size: 22px; font-weight: bold; color: #4285f4; }
-  .search-box { margin-top: 10px; }
-  input { width: 60%; padding: 10px; border-radius: 24px; border: 1px solid #ddd; }
-  button { padding: 10px 20px; border-radius: 24px; border: none; background: #4285f4; color: white; cursor: pointer; }
-  .container { width: 800px; margin: 20px auto; }
-  .result { margin-bottom: 25px; }
-  .result a { font-size: 18px; color: #1a0dab; text-decoration: none; }
-  .result a:hover { text-decoration: underline; }
-  .url { font-size: 14px; color: #006621; }
-  .snippet { font-size: 14px; color: #545454; }
+body { font-family: Arial; margin:0; background:#fff; }
+.dark { background:#0f172a; color:#fff; }
+
+.header { display:flex; padding:15px; gap:10px; }
+input { flex:1; padding:10px; border-radius:20px; }
+
+.container { width:700px; margin:20px 0 20px 150px; }
+.result { margin-bottom:20px; }
+
+.rank { position:fixed; right:20px; top:100px; width:200px; }
+
+.rank div { cursor:pointer; padding:5px; }
+
 </style>
 </head>
+
 <body>
 
 <div class="header">
-  <div class="logo">Anonymous Search</div>
-  <form class="search-box" action="/api/search" method="GET">
-    <input name="q" value="${q.replace(/"/g, '&quot;')}" placeholder="検索ワード">
-    <button type="submit">検索</button>
+  <div onclick="location.href='/'" style="cursor:pointer;">🔍</div>
+  <form action="/api/search">
+    <input name="q" value="${q}" placeholder="${t.placeholder}">
+    <input type="hidden" name="lang" value="${lang}">
   </form>
+
+  <!-- 言語切替 -->
+  <select onchange="changeLang(this.value)">
+    <option value="ja" ${lang==="ja"?"selected":""}>JP</option>
+    <option value="en" ${lang==="en"?"selected":""}>EN</option>
+  </select>
+
 </div>
 
 <div class="container">
 `;
 
   if (results.length > 0) {
-    results.forEach((r) => {
-      html += `
-        <div class="result">
-          <div class="url">${r.url}</div>
-          <a href="/proxy?url=${encodeURIComponent(r.url)}">
-            ${r.title}
-          </a>
-          <div class="snippet">${r.content}</div>
-        </div>
-      `;
-    });
+    paginated.forEach(r => {
+  const domain = new URL(r.url).hostname;
+
+  html += `
+    <div class="result">
+      <img src="https://www.google.com/s2/favicons?domain=${domain}" width="16">
+      <a href="/proxy?url=${encodeURIComponent(r.url)}">${r.title}</a>
+      <div class="snippet">${r.content}</div>
+    </div>
+  `;
+});
   } else if (q) {
-    html += `<p>結果が見つかりませんでした。</p>`;
-  } else {
-    html += `<p>キーワードを入力して検索してください。</p>`;
+    html += `<p>${t.no}</p>`;
   }
 
-  html += `</div></body></html>`;
-    
-  cache[q] = html;
-    
-  res.send(html);
-}); // ここで正しく閉じられました
+  html += `</div>
 
+<div class="rank">
+  <h4>${t.rank}</h4>
+  ${ranking.map(r => `
+    <div onclick="location.href='/api/search?q=${r[0]}'">
+      🔥 ${r[0]}
+    </div>
+  `).join("")}
+</div>
+
+html += `
+<div style="margin:40px 0; text-align:center;">
+  ${page > 1 ? `<a href="/api/search?q=${q}&page=${page-1}">← 前へ</a>` : ""}
+  
+  <span style="margin:0 20px;">${page}</span>
+  
+  ${results.length > page * perPage ? `<a href="/api/search?q=${q}&page=${page+1}">次へ →</a>` : ""}
+</div>
+`;
+
+<script>
+function changeLang(l) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("lang", l);
+  location.href = url.toString();
+}
+</script>
+
+</body>
+</html>
+`;
+
+  global.cache[q] = html;
+
+  res.send(html);
+});
 /* =============================
    静的ファイル
 ============================= */
