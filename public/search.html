@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>検索</title>
+</head>
+<body>
+
+<input id="searchBox" placeholder="検索">
+<button onclick="search()">検索</button>
+
+<div id="results"></div>
+
+<script>
+async function search() {
+  const q = document.getElementById('searchBox').value;
+
+  const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+  const data = await res.json();
+
+  const resultsDiv = document.getElementById('results');
+  resultsDiv.innerHTML = '';
+
+  data.results.forEach(r => {
+    const a = document.createElement('a');
+    a.href = r.url;
+    a.textContent = r.text;
+    a.target = "_blank";
+
+    const div = document.createElement('div');
+    div.appendChild(a);
+
+    resultsDiv.appendChild(div);
+  });
+}
+</script>
+
+</body>
+</html>

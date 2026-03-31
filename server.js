@@ -177,7 +177,9 @@ app.get('/api/search', async (req, res) => {
   try {
     if (q) {
       // DuckDuckGo APIからデータを取得
-      const response = await fetch(`https://duckduckgo.com{encodeURIComponent(q)}&format=json`);
+      const response = await fetch(
+  `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json`
+);
       const data = await response.json();
 
       // RelatedTopicsから必要な情報を抽出（TextとFirstURLがあるものに限定）
