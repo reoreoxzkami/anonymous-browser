@@ -167,120 +167,91 @@ app.get("/proxy", async (req, res) => {
 /* =============================
    検索
 ============================= */
+/* =============================
+   検索 (エンドポイント: /api/search)
+============================= */
 app.get('/api/search', async (req, res) => {
-  const q = req.query.q;
+  const q = req.query.q || ""; // クエリがない場合は空文字
 
-  if (!q) {
-    return res.json({ results: [] });
-  }
-
+  let results = [];
   try {
-    const response = await fetch(`https://api.duckduckgo.com/?q=${q}&format=json`);
-    const data = await response.json();
+    if (q) {
+      // DuckDuckGo APIからデータを取得
+      const response = await fetch(`https://duckduckgo.com{encodeURIComponent(q)}&format=json`);
+      const data = await response.json();
 
-    const results = data.RelatedTopics.map(item => ({
-      text: item.Text,
-      url: item.FirstURL
-    }));
-
-    res.json({ results });
+      // RelatedTopicsから必要な情報を抽出（TextとFirstURLがあるものに限定）
+      results = (data.RelatedTopics || [])
+        .filter(item => item.FirstURL && item.Text)
+        .map(item => ({
+          title: item.Text,
+          url: item.FirstURL,
+          content: item.Text
+        }));
+    }
   } catch (e) {
-    res.status(500).json({ error: '検索エラー' });
+    console.error('検索エラー:', e);
+    // エラー時は空の結果で続行
   }
-});
 
+  // HTMLの組み立て
   let html = `
 <!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <title>${q ? q + " - 検索" : "検索"}</title>
-
 <style>
-body {
-  font-family: Arial;
-  margin: 0;
-  background: #fff;
-}
-.header {
-  padding: 20px;
-  border-bottom: 1px solid #eee;
-}
-.logo {
-  font-size: 22px;
-  font-weight: bold;
-  color: #4285f4;
-}
-.search-box {
-  margin-top: 10px;
-}
-input {
-  width: 60%;
-  padding: 10px;
-  border-radius: 24px;
-  border: 1px solid #ddd;
-}
-button {
-  padding: 10px 20px;
-  border-radius: 24px;
-  border: none;
-  background: #4285f4;
-  color: white;
-}
-.container {
-  width: 800px;
-  margin: 20px auto;
-}
-.result {
-  margin-bottom: 25px;
-}
-.result a {
-  font-size: 18px;
-  color: #1a0dab;
-  text-decoration: none;
-}
-.result a:hover {
-  text-decoration: underline;
-}
-.url {
-  font-size: 14px;
-  color: #006621;
-}
-.snippet {
-  font-size: 14px;
-  color: #545454;
-}
+  body { font-family: Arial; margin: 0; background: #fff; }
+  .header { padding: 20px; border-bottom: 1px solid #eee; }
+  .logo { font-size: 22px; font-weight: bold; color: #4285f4; }
+  .search-box { margin-top: 10px; }
+  input { width: 60%; padding: 10px; border-radius: 24px; border: 1px solid #ddd; }
+  button { padding: 10px 20px; border-radius: 24px; border: none; background: #4285f4; color: white; cursor: pointer; }
+  .container { width: 800px; margin: 20px auto; }
+  .result { margin-bottom: 25px; }
+  .result a { font-size: 18px; color: #1a0dab; text-decoration: none; }
+  .result a:hover { text-decoration: underline; }
+  .url { font-size: 14px; color: #006621; }
+  .snippet { font-size: 14px; color: #545454; }
 </style>
 </head>
 <body>
 
 <div class="header">
   <div class="logo">Anonymous Search</div>
-
-  <form class="search-box" action="/search">
-    <input name="q" value="${q}" placeholder="検索ワード">
-    <button>検索</button>
+  <form class="search-box" action="/api/search" method="GET">
+    <input name="q" value="${q.replace(/"/g, '&quot;')}" placeholder="検索ワード">
+    <button type="submit">検索</button>
   </form>
 </div>
 
 <div class="container">
 `;
 
-results.forEach((r) => {
-    html += `
-      <div class="result">
-        <div class="url">${r.url}</div>
-        <a href="/proxy?url=${encodeURIComponent(r.url)}">
-          ${r.title}
-        </a>
-        <div class="snippet">${r.content}</div>
-      </div>
-    `;
-  });
+  if (results.length > 0) {
+    results.forEach((r) => {
+      html += `
+        <div class="result">
+          <div class="url">${r.url}</div>
+          <a href="/proxy?url=${encodeURIComponent(r.url)}">
+            ${r.title}
+          </a>
+          <div class="snippet">${r.content}</div>
+        </div>
+      `;
+    });
+  } else if (q) {
+    html += `<p>結果が見つかりませんでした。</p>`;
+  } else {
+    html += `<p>キーワードを入力して検索してください。</p>`;
+  }
 
   html += `</div></body></html>`;
+  
   res.send(html);
-});
+}); // ここで正しく閉じられました
+
 /* =============================
    静的ファイル
 ============================= */
