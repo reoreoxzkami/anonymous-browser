@@ -17,7 +17,17 @@ app.use(
     contentSecurityPolicy: false,
   })
 );
+/*メモリ対策*/
+args: [
+  ...chromium.args,
+  "--no-sandbox",
+  "--disable-setuid-sandbox"
+],
+    await page.setJavaScriptEnabled(true);
 
+await page.goto(url, {
+  waitUntil: ["domcontentloaded", "networkidle0"]
+});
 /* =============================
    Supabase
 ============================= */
@@ -154,37 +164,42 @@ app.use((req, res, next) => {
 /* =============================
    プロキシ（メイン機能）
 ============================= */
+import chromium from "chrome-aws-lambda";
+import puppeteer from "puppeteer-core";
+
 app.get("/proxy", async (req, res) => {
-  if (req.usage.count > 100) {
-  return res.send("使いすぎです（1時間後にリセット）");
-}
-    
   const url = req.query.url;
 
-  if (!isValidUrl(url)) return res.send("URL不正");
-
-  res.send(`
-    <iframe src="${url}" 
-    style="width:100%; height:100vh; border:none;">
-    </iframe>
-  `);
-});
+  if (!url) return res.send("URLが必要です");
 
   try {
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0"
-      }
+    const browser = await puppeteer.launch({
+      args: chromium.args,
+      executablePath: await chromium.executablePath,
+      headless: chromium.headless,
     });
 
-    const html = await response.text();
+    const page = await browser.newPage();
+
+    await page.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    );
+
+    await page.goto(url, {
+      waitUntil: "networkidle2",
+      timeout: 30000,
+    });
+
+    const html = await page.content();
+
+    await browser.close();
 
     res.send(html);
   } catch (e) {
-    res.send("このサイトは匿名表示できません");
+    console.error(e);
+    res.send("読み込み失敗（Puppeteer）");
   }
 });
-
 /* =============================
    検索 (エンドポイント: /api/search)
 ============================= */
@@ -287,21 +302,25 @@ input { flex:1; padding:10px; border-radius:20px; }
     paginated.forEach(r => {
       const domain = new URL(r.url).hostname;
 
-      html += `
-        <div class="result">
-          <img src="https://www.google.com/s2/favicons?domain=${domain}" width="16">
-          
-          <!-- プロキシ経由 -->
-          <a href="/proxy?url=${encodeURIComponent(r.url)}" target="_blank">
-            ${r.title}
-          </a>
+     html += `
+  <div class="result">
+    <img src="https://www.google.com/s2/favicons?domain=${domain}" width="16">
+    
+    <!-- 通常リンク -->
+    <a href="${r.url}" target="_blank">
+      ${r.title}
+    </a>
 
-          <!-- 元URL表示 -->
-          <div class="url">${r.url}</div>
+    <!-- 匿名ボタン -->
+    <a href="/proxy?url=${encodeURIComponent(r.url)}" target="_blank" 
+       style="margin-left:10px; font-size:12px; color:#fff; background:#007bff; padding:4px 8px; border-radius:6px; text-decoration:none;">
+       匿名で開く
+    </a>
 
-          <div class="snippet">${r.content}</div>
-        </div>
-      `;
+    <div class="url">${r.url}</div>
+    <div class="snippet">${r.content}</div>
+  </div>
+`;
     });
   } else if (q) {
     html += `<p>${t.no}</p>`;
