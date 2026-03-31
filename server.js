@@ -1,3 +1,5 @@
+import dotenv from "dotenv";
+dotenv.config();
 import express from "express";
 import fetch from "node-fetch";
 import session from "express-session";
@@ -25,7 +27,6 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_KEY
 );
-
 /* =============================
    Redis
 ============================= */
@@ -37,22 +38,19 @@ if (process.env.REDIS_URL) {
 /* =============================
    セッション
 ============================= */
-app.set("trust proxy", 1);
+app.set("trust proxy", 1); // ←これ重要（Render用）
 
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || "super-secret-key",
+    secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      maxAge: 1000 * 60 * 60,
+      secure: true, // Renderはhttps
+      sameSite: "none"
     },
   })
 );
-
 /* =============================
    ユーティリティ
 ============================= */
@@ -176,18 +174,26 @@ app.get("/proxy", async (req, res) => {
 app.get("/search", async (req, res) => {
   const q = req.query.q || "";
 
-  const API_KEY = process.env.SERP_API_KEY;
-
   let results = [];
 
   if (q) {
     try {
-      const response = await fetch(
-        `https://serpapi.com/search.json?q=${encodeURIComponent(q)}&hl=ja&gl=jp&api_key=${API_KEY}`
-      );
+      const response = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          api_key: process.env.TAVILY_API_KEY,
+          query: q,
+          search_depth: "basic",
+          include_answer: false,
+          include_images: false,
+        }),
+      });
 
       const data = await response.json();
-      results = data.organic_results || [];
+      results = data.results || [];
     } catch (e) {
       console.log(e);
     }
@@ -202,69 +208,54 @@ app.get("/search", async (req, res) => {
 
 <style>
 body {
-  font-family: Arial, sans-serif;
+  font-family: Arial;
   margin: 0;
   background: #fff;
-  color: #202124;
 }
-
 .header {
   padding: 20px;
   border-bottom: 1px solid #eee;
 }
-
 .logo {
   font-size: 22px;
   font-weight: bold;
   color: #4285f4;
 }
-
 .search-box {
   margin-top: 10px;
 }
-
 input {
   width: 60%;
-  padding: 10px 15px;
+  padding: 10px;
   border-radius: 24px;
   border: 1px solid #ddd;
-  font-size: 16px;
 }
-
 button {
-  margin-left: 10px;
   padding: 10px 20px;
   border-radius: 24px;
   border: none;
   background: #4285f4;
   color: white;
-  cursor: pointer;
 }
-
 .container {
   width: 800px;
   margin: 20px auto;
 }
-
 .result {
   margin-bottom: 25px;
 }
-
 .result a {
   font-size: 18px;
   color: #1a0dab;
   text-decoration: none;
 }
-
 .result a:hover {
   text-decoration: underline;
 }
-
 .url {
   font-size: 14px;
   color: #006621;
 }
-
 .snippet {
   font-size: 14px;
   color: #545454;
@@ -288,11 +279,11 @@ button {
   results.forEach((r, i) => {
     html += `
       <div class="result">
-        <div class="url">${r.displayed_link || ""}</div>
-        <a href="/proxy?url=${encodeURIComponent(r.link)}">
+        <div class="url">${r.url || ""}</div>
+        <a href="/proxy?url=${encodeURIComponent(r.url)}">
           ${r.title}
         </a>
-        <div class="snippet">${r.snippet || ""}</div>
+        <div class="snippet">${r.content || ""}</div>
       </div>
     `;
   });
