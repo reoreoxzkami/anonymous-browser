@@ -17,17 +17,6 @@ app.use(
     contentSecurityPolicy: false,
   })
 );
-/*メモリ対策*/
-args: [
-  ...chromium.args,
-  "--no-sandbox",
-  "--disable-setuid-sandbox"
-],
-    await page.setJavaScriptEnabled(true);
-
-await page.goto(url, {
-  waitUntil: ["domcontentloaded", "networkidle0"]
-});
 /* =============================
    Supabase
 ============================= */
@@ -43,7 +32,33 @@ const supabase = createClient(
 let redis;
 if (process.env.REDIS_URL) {
 }
+let normalBrowser = null;
+/*ブラウザ*/
+let torBrowser = null;
 
+async function getBrowser(useTor) {
+  if (useTor) {
+    if (!torBrowser) {
+      torBrowser = await puppeteer.launch({
+        headless: "new",
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--proxy-server=socks5://127.0.0.1:9050"
+        ]
+      });
+    }
+    return torBrowser;
+  } else {
+    if (!normalBrowser) {
+      normalBrowser = await puppeteer.launch({
+        headless: "new",
+        args: ["--no-sandbox", "--disable-setuid-sandbox"]
+      });
+    }
+    return normalBrowser;
+  }
+}
 /* =============================
    セッション
 ============================= */
@@ -164,40 +179,61 @@ app.use((req, res, next) => {
 /* =============================
    プロキシ（メイン機能）
 ============================= */
-import chromium from "chrome-aws-lambda";
-import puppeteer from "puppeteer-core";
+import puppeteer from "puppeteer";
 
 app.get("/proxy", async (req, res) => {
-  const url = req.query.url;
+  const targetUrl = req.query.url;
+  const useTor = req.query.tor === "1"; // ← ここ重要
 
-  if (!url) return res.send("URLが必要です");
+  if (!targetUrl) return res.send("URL必要");
 
   try {
-    const browser = await puppeteer.launch({
-      args: chromium.args,
-      executablePath: await chromium.executablePath,
-      headless: chromium.headless,
-    });
-
+    const browser = await getBrowser(useTor);
     const page = await browser.newPage();
 
     await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
     );
 
-    await page.goto(url, {
+    await page.goto(targetUrl, {
       waitUntil: "networkidle2",
-      timeout: 30000,
+      timeout: 30000
     });
 
-    const html = await page.content();
+    let html = await page.content();
+    await page.close();
 
-    await browser.close();
+    // baseタグ
+    html = html.replace("<head>", `<head><base href="${targetUrl}">`);
+
+    const convertUrl = (url) => {
+      try {
+        if (url.startsWith("http")) return url;
+        return new URL(url, targetUrl).href;
+      } catch {
+        return url;
+      }
+    };
+
+    // link書き換え（Tor維持）
+    html = html.replace(/href="(.*?)"/g, (m, p1) => {
+      const newUrl = convertUrl(p1);
+      return `href="/proxy?url=${encodeURIComponent(newUrl)}&tor=${useTor ? "1" : "0"}"`;
+    });
+
+    html = html.replace(/src="(.*?)"/g, (m, p1) => {
+      const newUrl = convertUrl(p1);
+      return `src="/proxy?url=${encodeURIComponent(newUrl)}&tor=${useTor ? "1" : "0"}"`;
+    });
+
+    res.setHeader("Content-Security-Policy", "");
+    res.setHeader("X-Frame-Options", "");
 
     res.send(html);
+
   } catch (e) {
     console.error(e);
-    res.send("読み込み失敗（Puppeteer）");
+    res.send("表示できません");
   }
 });
 /* =============================
@@ -226,25 +262,43 @@ app.get('/api/search', async (req, res) => {
 
   let results = [];
 
-  try {
-    if (q) {
-      const response = await fetch(
-        `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json`
-      );
-      const data = await response.json();
+try {
+  if (q) {
+   const params = new URLSearchParams();
+params.append("q", q);
 
-      results = (data.RelatedTopics || [])
-        .flatMap(item => item.Topics || [item])
-        .filter(item => item.FirstURL && item.Text)
-        .map(item => ({
-          title: item.Text,
-          url: item.FirstURL,
-          content: item.Text
-        }));
-    }
-  } catch (e) {
-    console.error(e);
-  }
+const response = await fetch("https://html.duckduckgo.com/html/", {
+  method: "POST",
+  headers: {
+    "User-Agent": "Mozilla/5.0",
+    "Content-Type": "application/x-www-form-urlencoded"
+  },
+  body: params.toString()
+});
+
+const rawhtml = await response.text();
+
+// デバッグ
+console.log("HTML length:", rawhtml.length);
+
+// DuckDuckGo用のパターン
+const regex = /<a[^>]+class="result__a"[^>]+href="(.*?)"[^>]*>(.*?)<\/a>/g;
+      
+let match;
+while ((match = regex.exec(rawhtml)) !== null) {
+  const rawUrl = match[1];
+  const title = match[2].replace(/<[^>]+>/g, "");
+
+  try {
+    const urlObj = new URL(rawUrl);
+    const realUrl = urlObj.searchParams.get("uddg");
+
+    results.push({
+      title,
+      url: realUrl || rawUrl
+    });
+  } catch (e) {}
+}
 
   // ページネーション
   const paginated = results.slice((page - 1) * perPage, page * perPage);
@@ -312,11 +366,24 @@ input { flex:1; padding:10px; border-radius:20px; }
     </a>
 
     <!-- 匿名ボタン -->
-    <a href="/proxy?url=${encodeURIComponent(r.url)}" target="_blank" 
+    <a href="/proxy?url=${encodeURIComponent(r.url)}&tor=0" target="_blank" 
        style="margin-left:10px; font-size:12px; color:#fff; background:#007bff; padding:4px 8px; border-radius:6px; text-decoration:none;">
        匿名で開く
     </a>
+    
+   <a href="/proxy?url=${encodeURIComponent(r.url)}&tor=1" target="_blank"
+   style="background:#111;color:#0f0;">
+  Tor
+</a>
 
+<a href="/view?url=${encodeURIComponent(r.url)}&tor=0">
+  iframe
+</a>
+
+<a href="/view?url=${encodeURIComponent(r.url)}&tor=1"
+   style="background:#111;color:#0f0;">
+  Tor iframe
+</a>
     <div class="url">${r.url}</div>
     <div class="snippet">${r.content}</div>
   </div>
@@ -358,6 +425,26 @@ function changeLang(l) {
 
   global.cache[q + page] = html;
   res.send(html);
+
+  } // ← if (q) を閉じる
+} catch (e) {
+  console.error(e);
+  res.send("エラーが発生しました");
+}
+
+}); // ← app.get を閉じる
+
+app.get("/view", (req, res) => {
+  const url = req.query.url;
+  const tor = req.query.tor || "0";
+
+  res.send(`
+    <html>
+    <body style="margin:0">
+      <iframe src="/proxy?url=${url}&tor=${tor}" style="width:100%; height:100vh; border:none;"></iframe>
+    </body>
+    </html>
+  `);
 });
 /* =============================
    静的ファイル
